@@ -1,1 +1,191 @@
 
+"""---This merge  data sets """
+import os
+import glob
+import numpy as np
+import scipy.io
+import torch
+from sklearn.ensemble import RandomForestClassifier
+current_directory = os.getcwd()
+
+#---Normal Dataset---
+# Folder containing your 4 normal baseline .mat files
+folder_path = os.path.join(current_directory, os.path.join("Normal_Data"))
+#folder_path = r"C:\Users\Musharraf Hussain\Desktop\Paper\Code\Normal_Data"
+# Find all .mat files in the directory
+file_paths = glob.glob(os.path.join(folder_path, "*.mat"))
+signal_list = []
+print(f"Found {len(file_paths)} files in directory:\n")
+
+for path in file_paths:
+    file_name = os.path.basename(path)
+    mat_data = scipy.io.loadmat(path)
+    # Automatically locate the key containing 'DE_time' in .mat FE_time is also there
+    de_key = [key for key in mat_data.keys() if 'DE_time' in key][0]
+    # Extract 1D vibration array
+    signal = mat_data[de_key].ravel()
+    signal_list.append(signal)
+    #print(f"Loaded: {file_name:10s} | Key: {de_key:15s} | Samples: {len(signal):,}")
+#Combine all 4 files into ONE continuous array so using NP
+normal_signal = np.concatenate(signal_list)
+#print(normal_signal)
+signal_list.clear()
+'''
+print("\n--- Summary ---")
+print(f"Total Normal Samples Combined: {len(normal_signal):,}")
+print(f"Final Array Shape " f": {normal_signal.size}")
+'''
+
+#---Faulty inner  Data set---
+# Folder containing your faulty inner .mat files
+folder_path = os.path.join(current_directory, os.path.join("Faulty_Data", "inner"))
+# Find all .mat files in the directory
+file_paths = glob.glob(os.path.join(folder_path, "*.mat"))
+signal_list = []
+print(f"Found {len(file_paths)} files in directory:\n")
+
+for path in file_paths:
+    file_name = os.path.basename(path)
+    mat_data = scipy.io.loadmat(path)
+    # Automatically locate the key containing 'DE_time' in .mat FE_time is also there
+    de_key = [key for key in mat_data.keys() if 'DE_time' in key][0]
+    # Extract 1D vibration array
+    signal = mat_data[de_key].ravel()
+    signal_list.append(signal)
+
+    #print(f"Loaded: {file_name:10s} | Key: {de_key:15s} | Samples: {len(signal):,}")
+#Combine all  files into ONE continuous array so using NP
+faulty_inner_signal = np.concatenate(signal_list)
+signal_list.clear()
+
+#---Ball dataset---
+#for Faulty ball  Data set
+# Folder containing your faulty inner .mat files
+folder_path = os.path.join(current_directory, os.path.join("Faulty_Data", "ball"))
+# Find all .mat files in the directory
+file_paths = glob.glob(os.path.join(folder_path, "*.mat"))
+signal_list = []
+print(f"Found {len(file_paths)} files in directory:\n")
+
+for path in file_paths:
+    file_name = os.path.basename(path)
+    mat_data = scipy.io.loadmat(path)
+    # Automatically locate the key containing 'DE_time' in .mat FE_time is also there
+    de_key = [key for key in mat_data.keys() if 'DE_time' in key][0]
+    # Extract 1D vibration array
+    signal = mat_data[de_key].ravel()
+    signal_list.append(signal)
+
+    #print(f"Loaded: {file_name:10s} | Key: {de_key:15s} | Samples: {len(signal):,}")
+#Combine all  files into ONE continuous array so using NP
+faulty_ball_signal = np.concatenate(signal_list)
+#print(faulty_inner_signal.shape)
+signal_list.clear()
+
+
+#---outer dataset---
+#for Faulty ball  Data set
+# Folder containing your faulty inner .mat files
+folder_path = os.path.join(current_directory, os.path.join("Faulty_Data", "outer"))
+# Find all .mat files in the directory
+file_paths = glob.glob(os.path.join(folder_path, "*.mat"))
+signal_list = []
+print(f"Found {len(file_paths)} files in directory:\n")
+
+for path in file_paths:
+    file_name = os.path.basename(path)
+    mat_data = scipy.io.loadmat(path)
+    # Automatically locate the key containing 'DE_time' in .mat FE_time is also there
+    de_key = [key for key in mat_data.keys() if 'DE_time' in key][0]
+    # Extract 1D vibration array
+    signal = mat_data[de_key].ravel()
+    signal_list.append(signal)
+   #print(f"Loaded: {file_name:10s} | Key: {de_key:15s} | Samples: {len(signal):,}")
+#Combine all  files into ONE continuous array so using NP
+faulty_outer_signal = np.concatenate(signal_list)
+#print(faulty_outer_signal.shape)
+signal_list.clear()
+
+"""Splits  the training  and testing sets """
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+WINDOW_SIZE = 1024
+STRIDE = 512
+def ensure_windows(sig):
+    """Ensures any signal is correctly shaped into an (N, 1024) 2D array."""
+    if sig.ndim == 1:
+        num_windows = (len(sig) - WINDOW_SIZE) // STRIDE + 1
+        return np.array([sig[i * STRIDE : i * STRIDE + WINDOW_SIZE] for i in range(num_windows)])
+    return sig
+# 1. Ensure all arrays are properly windowed to (N, 1024)
+X_norm_win = ensure_windows(normal_signal)
+X_inner_win = ensure_windows(faulty_inner_signal)
+X_ball_win = ensure_windows(faulty_ball_signal)
+X_outer_win = ensure_windows(faulty_outer_signal)
+# 2. Find minimum length to balance classes evenly if desired
+min_len = min(X_inner_win.shape[0], X_ball_win.shape[0], X_outer_win.shape[0])
+X_faulty = np.vstack([
+    X_inner_win[:min_len],
+    X_ball_win[:min_len],
+    X_outer_win[:min_len]
+])
+# Match normal samples to total faulty samples
+X_normal = X_norm_win[:X_faulty.shape[0]]
+# 3. Create labels
+y_normal = np.zeros(len(X_normal), dtype=int)
+y_faulty = np.ones(len(X_faulty), dtype=int)
+# 4. Combine Stage 1 dataset (Now dimensions 1 will both be exactly 1024!)
+X_stage1 = np.vstack([X_normal, X_faulty])
+y_stage1 = np.concatenate([y_normal, y_faulty])
+# 5. Split dataset
+X_train, X_test, y_train, y_test = train_test_split(
+    X_stage1, y_stage1,
+    random_state=104,
+    test_size=0.3,
+    shuffle=True,
+    stratify=y_stage1
+)
+"""Level 1 classification (Normal and Faulty) Randomforest model  """
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+# 1. Initialize the Random Forest Classifier
+# n_estimators=100 creates 100 decision trees; n_jobs=-1 uses all CPU cores for fast training
+rf_classifier = RandomForestClassifier(
+    n_estimators=100,
+    random_state=104,
+    n_jobs=-1
+)
+# 2. Train the model on your training data (No scaling needed for Random Forest!)
+rf_classifier.fit(X_train, y_train)
+# 3. Predict on the test set
+y_pred_rf = rf_classifier.predict(X_test)
+"""Level 1 classification between normal and faulty samples """
+import random
+# Pass your actual test data into the trained Random Forest model
+predictions = rf_classifier.predict(X_test) #2496
+probabilities = rf_classifier.predict_proba(X_test) #4992
+"""
+1. predictions = rf_classifier.predict(X_test)
+    What it does: This takes every single vibration window in your test set and asks the Random Forest model to make a final decision: Is this healthy (0) or faulty (1)?
+
+2. probabilities = rf_classifier.predict_proba(X_test)
+    What it does: This asks the model not just for its final answer, but for its confidence level (probability) for both classes.
+"""
+#Shape and size
+#print(predictions.size,predictions.shape)
+#print(probabilities.size,probabilities.shape)
+#Random number genrator
+i=random.randint(0, predictions.size)
+#print(i)
+pred = predictions[i]
+actual = y_test[i]
+conf = probabilities[i][pred] * 100
+status = "HEALTHY (Normal)" if pred == 0 else "FAULTY"
+actual_status = "HEALTHY (Normal)" if actual == 0 else "FAULTY"
+#print(f"Sample {i+1} ➔ Predicted: {status} ({conf:.2f}% confidence) | Actual: {actual_status}")
+if pred == 0:
+    print(f"The provided sample is Healthy, {conf:.2f}% confidence ")
+else:
+    print(f"The provided sample is FAULTY, {conf:.2f}% confidence ")  
